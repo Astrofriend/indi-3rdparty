@@ -996,7 +996,8 @@ void Skywatcher::SetRARate(double rate)
 
     LOGF_DEBUG("%s() : rate = %g", __FUNCTION__, rate);
 
-    if ((absrate < get_min_rate()) || (absrate > get_max_rate()))
+//    if ((absrate < get_min_rate()) || (absrate > get_max_rate()))
+    if ((absrate > get_max_rate()))
     {
         throw EQModError(EQModError::ErrInvalidParameter,
                          "Speed rate out of limits: %.2fx Sidereal (min=%.2f, max=%.2f)", absrate, MIN_RATE, MAX_RATE);
@@ -1040,7 +1041,8 @@ void Skywatcher::SetDERate(double rate)
 
     LOGF_DEBUG("%s() : rate = %g", __FUNCTION__, rate);
 
-    if ((absrate < get_min_rate()) || (absrate > get_max_rate()))
+//    if ((absrate < get_min_rate()) || (absrate > get_max_rate()))
+    if (absrate > get_max_rate())
     {
         throw EQModError(EQModError::ErrInvalidParameter,
                          "Speed rate out of limits: %.2fx Sidereal (min=%.2f, max=%.2f)", absrate, MIN_RATE, MAX_RATE);

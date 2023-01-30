@@ -21,6 +21,8 @@
 #pragma once
 
 #include "../indi-eqmod/eqmodbase.h"
+#include <libindi/indipropertynumber.h>
+#include <libindi/indipropertyswitch.h>
 #include <connectionplugins/connectionserial.h>
 #include <connectionplugins/connectiontcp.h>
 
