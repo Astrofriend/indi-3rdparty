@@ -14,6 +14,18 @@
     You should have received a copy of the GNU General Public License
     along with the Skywatcher Protocol INDI driver.  If not, see <http://www.gnu.org/licenses/>.
 */
+/*
+Custom Track, SetRARate and SetDERate, Astrofriend 20230208
+When setting up Custom Track (dRA and dDEC) the lower limit is remowed, this allow for slow custom tracking rate,
+ie comets, SetRARate and SetDERate are changed.
+
+Custom Gear Ratio, InquireRAEncoderInfo and InquireDEEncoderInfo, Astrofriend 20230215
+Special code for my EQ6 v106 mount, all other mounts should work as normal. For EQ6 with
+Custom Gear Ratio 60/16 a special Routine change the setup in InquireRAEncoderInfo and InquireDEEncoderInfo.
+A subrutine select this EQ6 v106 mount and changed the gear ratio according to my special built mount.
+Added log warning of original and custom gear ratio.
+Added RA drift correction to RA and DEC WormGear.
+*/
 
 #include "skywatcher.h"
 
@@ -593,8 +605,13 @@ void Skywatcher::InquireRAEncoderInfo(INumberVectorProperty *encoderNP)
     // Steps per 360 degrees
     dispatch_command(InquireGridPerRevolution, Axis1, nullptr);
     //read_eqmod();
+    LOGF_WARN("%s: MountCode = %d, MCVersion = %lx",
+               __FUNCTION__, MountCode, MCVersion); // Extra info to log warning, Astrofriend
     RASteps360        = Revu24str2long(response + 1);
     steppersvalues[0] = (double)RASteps360;
+
+    LOGF_WARN("%s: original Gear Ratio RASteps360 (%x in place of %x %x)", __FUNCTION__,
+                      00, RASteps360, steppersvalues[0]); // Added log warning original Gear Ratio by Astrofriend
 
     // Steps per Worm
     dispatch_command(InquireTimerInterruptFreq, Axis1, nullptr);
@@ -614,6 +631,22 @@ void Skywatcher::InquireRAEncoderInfo(INumberVectorProperty *encoderNP)
                   0x205318, RAStepsWorm);
         RAStepsWorm = 0x205318; // for 114GT mount
     }
+
+    //  SkyWatcher EQ6 v=106 with Custom Gear Ratio 60/16 (org 47/12) by Astrofriend 20230215
+    //  RaStepWorm and DEStepWorm, included RA drift compensation
+    //  RA drift = 231,718119 arcsec/min, 48000/0.743238414=64582.23784S
+    if (MCVersion == 0x10600) //
+    {
+        RASteps360  = 8640000; // for Belt Drive Custom gear ratio
+        steppersvalues[0] = (double)RASteps360;
+        LOGF_WARN("%s: EQ6 v106 Custom Gear RASteps360 (%x in place of %x %x)", __FUNCTION__,
+                          8640000, RASteps360, steppersvalues[0]);  // Added log warning Custom Gear Ratio
+        RAStepsWorm = 64583; // for Belt Drive Custom gear include RA drift compensation
+
+        LOGF_WARN("%s: EQ6 v106 Custom Gear RAStepsWorm (%x RA drift corrected to %x)", __FUNCTION__,
+                  48000, RAStepsWorm);
+    }
+
     // Correct drift of 4.1 arcsec per minute with HEQ5 firmware 106
     // drift correction = 1.00455,  64935/1.00455 = 64640 = 0xFC80
     if (MCVersion == 0x10601)
@@ -650,6 +683,9 @@ void Skywatcher::InquireDEEncoderInfo(INumberVectorProperty *encoderNP)
     DESteps360        = Revu24str2long(response + 1);
     steppersvalues[0] = (double)DESteps360;
 
+    LOGF_WARN("%s: original Gear Ratio DESteps360 (%x in place of %x %x)", __FUNCTION__,
+                      00, DESteps360, steppersvalues[0]);  // Added log warning original Gear Ratio by Astrofriend
+
     // Steps per Worm
     dispatch_command(InquireTimerInterruptFreq, Axis2, nullptr);
     //read_eqmod();
@@ -668,6 +704,24 @@ void Skywatcher::InquireDEEncoderInfo(INumberVectorProperty *encoderNP)
                   0x205318, DEStepsWorm);
         DEStepsWorm = 0x205318; // for 114GT mount
     }
+
+    //  SkyWatcher EQ6 v=106 with Custom Gear Ratio 60/16 (org 47/12) by Astrofriend 20230215
+    //  RaStepWorm and DEStepWorm, included RA drift compensation
+    //  RA drift = 231,718119 arcsec/min, 48000/0.743238414=64582.23784
+    if ((MCVersion & 0x0000FF) == 0x00) //
+    {
+        DESteps360  = 8640000; // for Belt Drive Custom gear ratio
+        steppersvalues[0] = (double)DESteps360;
+
+        LOGF_WARN("%s: EQ6 v106 Custom Gear DESteps360 (%x in place of %x %x)", __FUNCTION__,
+                          8640000, DESteps360, steppersvalues[0]);  // Added log warning Custom Gear Ratio by Astrofriend
+
+        DEStepsWorm = RAStepsWorm; // for Belt Drive Custom gear ratio included RA drift compensation same as RA
+
+        LOGF_WARN("%s: EQ6 v106 Custom Gear DEStepsWorm  (%x RA drift corrected to  %x)", __FUNCTION__,
+                  48000, DEStepsWorm);  // Added log warning Custom Gear Ratio by Astrofriend
+    }
+
     // HEQ5 with firmware 106, use same rate as RA
     // drift correction = 1.00455,  64935/1.00455 = 64640 = 0xFC80
     if (MCVersion == 0x10601)
@@ -996,11 +1050,14 @@ void Skywatcher::SetRARate(double rate)
 
     LOGF_DEBUG("%s() : rate = %g", __FUNCTION__, rate);
 
-//    if ((absrate < get_min_rate()) || (absrate > get_max_rate()))
-    if ((absrate > get_max_rate()))
+    // if ((absrate < get_min_rate()) || (absrate > get_max_rate())) // original code
+    if ((absrate > get_max_rate())) // skipped the lower limit check, Astrofriend 20230205
     {
+    // throw EQModError(EQModError::ErrInvalidParameter,
+    //                       "Speed rate out of limits: %.2fx Sidereal (min=%.2f, max=%.2f)", absrate, MIN_RATE, MAX_RATE);  // original code
+
         throw EQModError(EQModError::ErrInvalidParameter,
-                         "Speed rate out of limits: %.2fx Sidereal (min=%.2f, max=%.2f)", absrate, MIN_RATE, MAX_RATE);
+                         "Speed rate out of limits: %.2fx Sidereal (max=%.2f)", absrate, MAX_RATE); // skiped the lower limit check, Astrofriend
     }
     //if (MountCode != 0xF0) {
     if (absrate > SKYWATCHER_LOWSPEED_RATE)
@@ -1041,11 +1098,11 @@ void Skywatcher::SetDERate(double rate)
 
     LOGF_DEBUG("%s() : rate = %g", __FUNCTION__, rate);
 
-//    if ((absrate < get_min_rate()) || (absrate > get_max_rate()))
-    if (absrate > get_max_rate())
+    // if ((absrate < get_min_rate()) || (absrate > get_max_rate()))
+    if (absrate > get_max_rate()) // skiped the lower limit check, by Astrofriend 20230205
     {
         throw EQModError(EQModError::ErrInvalidParameter,
-                         "Speed rate out of limits: %.2fx Sidereal (min=%.2f, max=%.2f)", absrate, MIN_RATE, MAX_RATE);
+                         "Speed rate out of limits: %.2fx Sidereal (max=%.2f)", absrate, MAX_RATE); // skiped the lower limit check, Astrofriend
     }
     //if (MountCode != 0xF0) {
     if (absrate > SKYWATCHER_LOWSPEED_RATE)
